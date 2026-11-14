@@ -31,7 +31,14 @@ class Server:
 
     def start(self):
         env = {**os.environ, **self.env}
-        # 日志写文件而非 PIPE：子进程大量输出时不会因管道缓冲填满而死锁
+        # 日志写文件而非 PIPE：子进程大量输出时不会因管道缓冲填满而死锁。
+        # 每次启动（含 restart 换新端口）使用唯一日志文件，避免复用已关闭
+        # 的旧句柄导致重启后的进程输出无处可查。
+        os.makedirs(self._log_dir, exist_ok=True)
+        safe = self.app.replace(":", "_").replace(".", "_")
+        self.log_path = os.path.join(
+            self._log_dir, f"{safe}_{self.port}_{os.getpid()}_{id(self)}.log"
+        )
         log_fh = open(self.log_path, "ab", buffering=0)
         self.proc = subprocess.Popen(
             [
@@ -88,10 +95,22 @@ def servers(tmp_path_factory):
     self_relay = Server("relay.app:app", {"RELAY_DATA": str(tmp / "relay")})
     self_relay.start()
     db_path = str(tmp / "collector.db")
-    collector = Server("collector.app:app", {"COLLECTOR_DB": db_path})
+    collector = Server(
+        "collector.app:app",
+        {
+            "COLLECTOR_DB": db_path,
+            "DEMUX_DB": str(tmp / "demux.db"),
+            "DEMUX_OUTPUT": str(tmp / "demux"),
+            "DEMUX_CHUNK_PAIRS": "2",  # 小批次，覆盖多分块与检查点恢复
+        },
+    )
     collector.start()
-    yield self_relay.base_url, collector.base_url, {"db_path": db_path,
-                                                    "relay_data": str(tmp / "relay")}
+    yield self_relay.base_url, collector.base_url, {
+        "db_path": db_path,
+        "relay_data": str(tmp / "relay"),
+        "demux_db": str(tmp / "demux.db"),
+        "demux_output": str(tmp / "demux"),
+    }
     collector.stop()
     self_relay.stop()
 

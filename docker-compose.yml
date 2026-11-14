@@ -14,13 +14,15 @@ services:
       - "8001:8000"
     volumes:
       - relay_data:/data/relay
+      # 演示脚本生成的 FASTQ 场景经共享卷交给 relay 提供文件服务
+      - relay_data:/shared
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').status==200 else 1)"]
       interval: 3s
       timeout: 3s
       retries: 10
 
-  # 采集端：FastAPI + SQLite 增量采集、配对、进度查询与下载
+  # 采集端 + 后台拆样：FastAPI + SQLite，单进程同时服务采集、查询与拆样
   collector:
     build:
       context: .
@@ -29,21 +31,28 @@ services:
     image: fastq-collector:latest
     environment:
       COLLECTOR_DB: /data/collector/collector.db
+      DEMUX_DB: /data/collector/demux.db
+      DEMUX_OUTPUT: /data/demux
+      # 演示数据量小，用小批次让检查点更密，便于观察失败恢复语义
+      DEMUX_CHUNK_PAIRS: "2"
       COLLECTOR_TIMEOUT: "15"
     ports:
       - "8000:8000"
     volumes:
       - collector_data:/data/collector
+      - demux_data:/data/demux
     depends_on:
       relay:
         condition: service_healthy
+    # 拆样工作线程在写盘失败时以非零码退出，靠重启策略拉起后按原任务号重试
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').status==200 else 1)"]
       interval: 3s
       timeout: 3s
       retries: 10
 
-  # 一次性端到端演示：自动建场景（含中断）、轮询采集、下载校验
+  # 一次性端到端演示（采集）：自动建场景（含中断）、轮询采集、下载校验
   demo:
     image: fastq-collector:latest
     environment:
@@ -58,6 +67,25 @@ services:
     command: ["python", "scripts/demo.py"]
     profiles: ["demo"]   # 默认不随 up 启动，需显式 --profile demo
 
+  # 一次性拆样演示：歧义归属 + 写盘失败恢复 + "文件完成而状态未保存"恢复
+  demo-demux:
+    image: fastq-collector:latest
+    environment:
+      RELAY_URL: http://relay:8000
+      COLLECTOR_URL: http://collector:8000
+      RELAY_DATA: /shared/relay
+      RUN_ID: demux-demo
+    depends_on:
+      relay:
+        condition: service_healthy
+      collector:
+        condition: service_healthy
+    volumes:
+      - relay_data:/shared
+    command: ["python", "scripts/demo_demux.py"]
+    profiles: ["demo"]
+
 volumes:
   relay_data:
   collector_data:
+  demux_data:

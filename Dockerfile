@@ -11,6 +11,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY collector /app/collector
+COPY demux /app/demux
 COPY relay /app/relay
 COPY scripts /app/scripts
 
@@ -21,6 +22,8 @@ EXPOSE 8000
 
 # 容器内默认数据目录（compose 会挂卷到这里）
 ENV COLLECTOR_DB=/data/collector/collector.db \
+    DEMUX_DB=/data/collector/demux.db \
+    DEMUX_OUTPUT=/data/demux \
     RELAY_DATA=/data/relay
 
 CMD ["sh", "-c", "uvicorn ${APP_MODULE} --host 0.0.0.0 --port 8000 --proxy-headers"]

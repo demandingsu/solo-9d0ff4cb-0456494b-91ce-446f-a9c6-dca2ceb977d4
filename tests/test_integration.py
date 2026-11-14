@@ -148,7 +148,11 @@ def test_restart_collector_resumes_from_committed_offsets(servers, client):
     base_url = f"{relay}/runs/{run_id}"
 
     # 独立采集端实例 A 采到至少两对
-    srv_a = Server("collector.app:app", {"COLLECTOR_DB": meta["db_path"]})
+    srv_a = Server("collector.app:app", {
+        "COLLECTOR_DB": meta["db_path"],
+        "DEMUX_DB": os.path.join(os.path.dirname(meta["db_path"]), "demux-a.db"),
+        "DEMUX_OUTPUT": os.path.join(os.path.dirname(meta["db_path"]), "demux-a"),
+    })
     srv_a.start()
     try:
         deadline = time.time() + 15
@@ -165,7 +169,11 @@ def test_restart_collector_resumes_from_committed_offsets(servers, client):
         srv_a.stop()  # 进程退出，内存状态全部丢失，只剩 SQLite
 
     # 全新进程 B 打开同一个 DB 文件继续采
-    srv_b = Server("collector.app:app", {"COLLECTOR_DB": meta["db_path"]})
+    srv_b = Server("collector.app:app", {
+        "COLLECTOR_DB": meta["db_path"],
+        "DEMUX_DB": os.path.join(os.path.dirname(meta["db_path"]), "demux-b.db"),
+        "DEMUX_OUTPUT": os.path.join(os.path.dirname(meta["db_path"]), "demux-b"),
+    })
     srv_b.start()
     try:
         # 进度行在重启后立即可见
